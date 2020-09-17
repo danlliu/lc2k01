@@ -63,8 +63,8 @@ where `cond = EQ, NE, LT, LE, GT, GE, MI, PL, VS, LO, LS, HI, or HS`.
 Pseudoinstructions supported by this simulator are:
 
 + `MOV Xd Xn = ORR Xd XZR Xn`
-+ `MOV Xd #uimm12 === ORRI Xd XZR #uimm12`
-+ `CMP Xn Xm === SUBS XZR Xm Xn`
++ `MOV Xd #uimm12 = ORRI Xd XZR #uimm12`
++ `CMP Xn Xm = SUBS XZR Xm Xn`
 
 Directives supported by this simulator are:
-+ `FILL [numbytes],{value}`
++ `% [numbytes]`
