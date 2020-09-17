@@ -1,0 +1,44 @@
+{
+  "ADD":    {"type": "R",  "opcode": "10001011000"},
+  "ADDS":   {"type": "R",  "opcode": "10101011000"},
+  "ADDI":   {"type": "I",  "opcode": "1001000100"},
+  "ADDIS":  {"type": "I",  "opcode": "1011000100"},
+
+  "SUB":    {"type": "R",  "opcode": "11001011000"},
+  "SUBS":   {"type": "R",  "opcode": "11101011000"},
+  "SUBI":   {"type": "I",  "opcode": "1101000100"},
+  "SUBIS":  {"type": "I",  "opcode": "1111000100"},
+
+  "LDUR":   {"type": "D",  "opcode": "11111000010"},
+  "LDURSW": {"type": "D",  "opcode": "10111000100"},
+  "LDURH":  {"type": "D",  "opcode": "01111000010"},
+  "LDURB":  {"type": "D",  "opcode": "00111000010"},
+
+  "STUR":   {"type": "D",  "opcode": "11111000000"},
+  "STURW":  {"type": "D",  "opcode": "10111000000"},
+  "STURH":  {"type": "D",  "opcode": "01111000000"},
+  "STURB":  {"type": "D",  "opcode": "00111000000"},
+
+  "MOVZ":   {"type": "IM", "opcode": "110100101"},
+  "MOVK":   {"type": "IM", "opcode": "111100101"},
+
+  "AND":    {"type": "R",  "opcode": "10001010000"},
+  "ANDI":   {"type": "I",  "opcode": "1001001000"},
+  "ORR":    {"type": "R",  "opcode": "10101010000"},
+  "ORRI":   {"type": "I",  "opcode": "1011001000"},
+  "EOR":    {"type": "R",  "opcode": "11001010000"},
+  "EORI":   {"type": "I",  "opcode": "1101001000"},
+  "LSL":    {"type": "R",  "opcode": "11010011011"},
+  "LSR":    {"type": "R",  "opcode": "11010011010"},
+
+  "B":      {"type": "B",  "opcode": "000101"},
+  "BR":     {"type": "R",  "opcode": "11010110000"},
+  "BL":     {"type": "B",  "opcode": "100101"},
+  "CBZ":    {"type": "CB", "opcode": "10110100"},
+  "CBNZ":   {"type": "CB", "opcode": "10110101"},
+  "B.cond": {"type": "CB", "opcode": "01010100"},
+
+  "ADR":    {"type": "CB", "opcode": "00010000"},
+  "HLT":    {"type": "HLT","opcode": "11010100010"},
+  "%":      {"type": "DIR"}
+}
