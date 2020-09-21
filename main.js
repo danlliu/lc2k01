@@ -32,11 +32,6 @@ let registers = Array(31);
 let mem = Array(1048576);
 let activeMemory = Array(1048576);
 
-for (let i = 0; i < 1048576; ++i) {
-    mem[i] = [0,0,0,0,0,0,0,0];
-    activeMemory[i] = false;
-}
-
 // +---------------------------------------------+ //
 // | SECTION 1: JQUERY & QUERYSELECTOR VARIABLES | //
 // +---------------------------------------------+ //
@@ -50,7 +45,7 @@ let memory_output = $('#memory');
 
 let controls = document.querySelector('#controls');
 
-let pc_output = document.querySelector('#pc')
+let pc_output = document.querySelector('#pc');
 let n_flag = document.querySelector('#n');
 let v_flag = document.querySelector('#v');
 let z_flag = document.querySelector('#z');
@@ -63,7 +58,7 @@ function line_template(badge, value) {
 function outputRegisters() {
     register_output.empty();
     for (let register in registers) {
-        register_output.append(line_template(`X${register}`, registers[register]));
+        register_output.append(line_template(`X${register}`, registers[register].toHexString()));
     }
 }
 
@@ -154,6 +149,21 @@ class Int {
         }
     }
 
+    toNumber(signed) {
+        let mult = BigInt(1);
+        let result = BigInt(0);
+        for (let i = 0; i < this.byteArr.length * 8; ++i) {
+            let byteIdx = this.byteArr.length - Math.floor(i / 8) - 1;
+            let bitIdx = 7 - (i % 8);
+            result += mult * BigInt(this.byteArr[byteIdx][bitIdx]);
+            mult *= 2n;
+            if (signed && i == this.byteArr.length * 8 - 2) {
+                mult *= -1n;
+            }
+        }
+        return result;
+    }
+
     toBinaryString() {
         let binary = "";
         for (let byte of this.bytes) {
@@ -183,6 +193,96 @@ class Int64 extends Int {
     constructor() {
         super(8);
     }
+}
+
+// +-------------------+ //
+// | sort of an ALU :) | //
+// +-------------------+ //
+
+function bigIntToInt64(bi) {
+    let result = new Int64();
+    for (let i = 7; i >= 0; --i) {
+        result.setByte(i, Number(bi % 256n));
+        bi /= 256n;
+    }
+    return {
+        result: result,
+        carry: bi
+    };
+}
+
+// 64 bit add w/ carry
+
+function addWithCarry(a, b, carry) {
+    console.log(`${a.toNumber(false)}, ${b.toNumber(false)}`);
+    console.log(`${a.toNumber(true)}, ${b.toNumber(true)}`);
+    let unsigned_sum = a.toNumber(false) + b.toNumber(false) + BigInt(carry);
+    let signed_sum = a.toNumber(true) + b.toNumber(true) + BigInt(carry);
+    console.log(unsigned_sum);
+    console.log(signed_sum);
+    let result64 = bigIntToInt64(unsigned_sum);
+    let resultStr = `${result64.carry}${result64.result.toBinaryString()}`;
+    console.log(resultStr);
+    let result = new Int64();
+    result.setBits(0, resultStr.substr(1, 64));
+    console.log(result.toBinaryString());
+    return {
+        sum: result,
+        n: (resultStr[1] === '1') ? 1 : 0,
+        z: (unsigned_sum === 0n) ? 1 : 0,
+        c: (result.toNumber(false) !== unsigned_sum) ? 1 : 0,
+        v: (result.toNumber(true) !== signed_sum) ? 1 : 0
+    };
+}
+
+function logAnd(a, b) {
+    let result = new Int64();
+    for (let i = 0; i < 64; ++i) {
+        result.bytes[Math.floor(i / 8)][i % 8] =
+            Math.floor((a.bytes[Math.floor(i / 8)][i % 8] +
+                            b.bytes[Math.floor(i / 8)][i % 8]) / 2);
+    }
+    return result;
+}
+
+function logOr(a, b) {
+    let result = new Int64();
+    for (let i = 0; i < 64; ++i) {
+        result.bytes[Math.floor(i / 8)][i % 8] =
+            Math.ceil((a.bytes[Math.floor(i / 8)][i % 8] +
+                b.bytes[Math.floor(i / 8)][i % 8]) / 2);
+    }
+    return result;
+}
+
+function logXor(a, b) {
+    let result = new Int64();
+    for (let i = 0; i < 64; ++i) {
+        result.bytes[Math.floor(i / 8)][i % 8] = (a.bytes[Math.floor(i / 8)][i % 8] +
+                b.bytes[Math.floor(i / 8)][i % 8]) % 2;
+    }
+    return result;
+}
+
+function logNot(a) {
+    let result = new Int64();
+    for (let i = 0; i < 64; ++i) {
+        result.bytes[Math.floor(i / 8)][i % 8] =
+            (a.bytes[Math.floor(i / 8)][i % 8] + 1) % 2;
+    }
+    return result;
+}
+
+function lsl(a, sh) {
+    let result = new Int64();
+    result.setBits(0, a.toBinaryString().substr(sh));
+    return result;
+}
+
+function lsr(a, sh) {
+    let result = new Int64();
+    result.setBits(sh, a.toBinaryString().substr(0, 64 - sh));
+    return result;
 }
 
 /// @param opcode: an 11-string of 0s and 1s
@@ -400,9 +500,9 @@ function assemble() {
         let label = null;
         let instruction = null;
         // does it have a label
-        if (line.match(/^[A-Za-z]+:/)) {
-            label = line.substr(0, line.indexOf(':'));
-            instruction = line.substr(line.indexOf(':') + 1).trim();
+        if (line.match(/^[A-Za-z0-9]+\s/)) {
+            label = line.substr(0, line.indexOf(' '));
+            instruction = line.substr(line.indexOf(' ') + 1).trim();
         } else {
             instruction = line.trim();
         }
@@ -442,7 +542,7 @@ function assemble() {
 
     for (let line of code) {
         // remove any comments
-        if (line.indexOf(';') != -1) {
+        if (line.indexOf(';') !== -1) {
             line = line.substr(0, line.indexOf(';'));
         }
 
@@ -450,8 +550,8 @@ function assemble() {
 
         let instruction = null;
         // does it have a label
-        if (line.match(/^[A-Za-z]+:/)) {
-            instruction = line.substr(line.indexOf(':') + 1).trim();
+        if (line.match(/^[A-Za-z0-9]+\s/)) {
+            instruction = line.substr(line.indexOf(' ') + 1).trim();
         } else {
             instruction = line.trim();
         }
@@ -462,10 +562,31 @@ function assemble() {
         let split = instruction.split(/[ ,\[\]]+/);
         let op = split[0];
 
-        let instrData = op.match(/B.*/) ? opcodes["B.COND"] : opcodes[op];
+        // handle pseudoinstructions
+
+        if (op === "MOV") {
+            // MOV Xd Xn or MOV Xd #uimm12
+            if (split[2].charAt(0) === 'X') {
+                // MOV Xd Xn
+                // ORR Xd XZR Xn
+                op = "ORR";
+                split = ["ORR", split[1], "XZR", split[2]];
+            } else {
+                op = "ORRI";
+                split = ["ORRI", split[1], "XZR", split[2]];
+            }
+        } else if (op === "CMP") {
+            // CMP Xn Xm
+            op = "SUBS";
+            split = ["SUBS", "XZR", split[2], split[1]];
+        }
+
+        let instrData = op.match(/B\..*/) ? opcodes["B.cond"] : opcodes[op];
 
         if (instrData == null) {
-            throw SyntaxError(line_num);
+            console.log("no instrData");
+            console.log(op);
+            throw SyntaxError(line_num.toString());
         }
 
         // assembly => machine code (32 bits)
@@ -477,7 +598,7 @@ function assemble() {
                 if (op === "BR") {
                     // BR Xt
                     if (split.length < 2) {
-                        throw SyntaxError(line_num);
+                        throw SyntaxError(line_num.toString());
                     }
                     let t = binaryPad(regNameToNum(split[1]), 5);
                     mc = rTypeInstruction(instrData.opcode, t, "11111", "00000");
@@ -485,7 +606,7 @@ function assemble() {
                     // LSL/LSR Xd Xn #uimm6
                     // split = LSL/LSR | Xd | Xn | #uimm6
                     if (split.length < 4) {
-                        throw SyntaxError(line_num);
+                        throw SyntaxError(line_num.toString());
                     }
                     let d = binaryPad(regNameToNum(split[1]), 5);
                     let n = binaryPad(regNameToNum(split[2]), 5);
@@ -496,7 +617,7 @@ function assemble() {
                     // INSTR Xd Xn Xm
                     // split = INSTR | Xd | Xn | Xm
                     if (split.length < 4) {
-                        throw SyntaxError(line_num);
+                        throw SyntaxError(line_num.toString());
                     }
                     let d = binaryPad(regNameToNum(split[1]), 5);
                     let n = binaryPad(regNameToNum(split[2]), 5);
@@ -510,7 +631,7 @@ function assemble() {
                 // INSTR Xd Xn #uimm12
                 // split = INSTR | Xd | Xn | #uimm12
                 if (split.length < 4) {
-                    throw SyntaxError(line_num);
+                    throw SyntaxError(line_num.toString());
                 }
                 let d = binaryPad(regNameToNum(split[1]), 5);
                 let n = binaryPad(regNameToNum(split[2]), 5);
@@ -524,7 +645,7 @@ function assemble() {
                 // INSTR Xt, [Xn, #simm9]
                 // split = INSTR | Xt | Xn | #simm9
                 if (split.length < 4) {
-                    throw SyntaxError(line_num);
+                    throw SyntaxError(line_num.toString());
                 }
                 let t = binaryPad(regNameToNum(split[1]), 5);
                 let n = binaryPad(regNameToNum(split[2]), 5);
@@ -538,9 +659,15 @@ function assemble() {
                 // B/BL label
                 // split = B/BL | label
                 if (split.length < 2) {
-                    throw SyntaxError(line_num);
+                    throw SyntaxError(line_num.toString());
                 }
-                let imm = simm(Math.floor(labels[split[1]] / 4), 26);
+                let imm;
+                if (split[1].match(/#-?[0-9]+/)) {
+                    imm = simm(split[1], 26);
+                } else {
+                    let diff = Math.floor((labels[split[1]] - currentPC) / 4);
+                    imm = simm(`#${diff}`, 26);
+                }
 
                 mc = bTypeInstruction(instrData.opcode, imm);
             }
@@ -550,18 +677,25 @@ function assemble() {
                 if (op.match(/B.*/)) {
                     // B.COND label
                     if (split.length < 2) {
-                        throw SyntaxError(line_num);
+                        throw SyntaxError(line_num.toString());
                     }
                     let cond = op.substr(2);
                     let condCode = "0" + condCodes[cond];
 
-                    let imm = simm(Math.floor(labels[split[1]] / 4), 19);
+                    let imm;
+
+                    if (split[1].match(/#-?[0-9]+/)) {
+                        imm = simm(split[1], 19);
+                    } else {
+                        let diff = Math.floor((labels[split[1]] - currentPC) / 4);
+                        imm = simm(`#${diff}`, 19);
+                    }
 
                     mc = cbTypeInstruction(instrData.opcode, imm, condCode);
                 } else if (op === "ADR") {
                     // ADR Xd, label
                     if (split.length < 3) {
-                        throw SyntaxError(line_num);
+                        throw SyntaxError(line_num.toString());
                     }
                     let label = split[2];
                     let diff = (labels[label] - currentPC) / 4;
@@ -572,10 +706,16 @@ function assemble() {
                 } else {
                     // CBZ/CBNZ Xt, label
                     if (split.length < 3) {
-                        throw SyntaxError(line_num);
+                        throw SyntaxError(line_num.toString());
                     }
                     let t = binaryPad(regNameToNum(split[1]), 5);
-                    let imm = simm(Math.floor(labels[split[2]] / 4), 19);
+                    let imm;
+                    if (split[2].match(/#-?[0-9]+/)) {
+                        imm = simm(split[2], 19);
+                    } else {
+                        let diff = Math.floor((labels[split[2]] - currentPC) / 4);
+                        imm = simm(`#${diff}`, 19);
+                    }
 
                     mc = cbTypeInstruction(instrData.opcode, imm, t);
                 }
@@ -586,7 +726,7 @@ function assemble() {
                 // MOVZ/MOVK Xd #uimm16 LSL N
                 // split = MOVZ/MOVK | Xd | #uimm16 | LSL | N
                 if (split.length < 3) {
-                    throw SyntaxError(line_num);
+                    throw SyntaxError(line_num.toString());
                 }
                 let opcode = instrData.opcode;
                 let shift = "";
@@ -608,7 +748,7 @@ function assemble() {
                         shift = "11";
                         break;
                     default:
-                        throw SyntaxError(line_num);
+                        throw SyntaxError(line_num.toString());
                 }
                 mc = iwTypeInstruction(opcode, shift, imm, d);
             }
@@ -628,11 +768,11 @@ function assemble() {
         // load into memory
 
         if (op === "%") {
-            currentPC += parseInt(split[1]);
             for (let i = 0; i < parseInt(split[1]); ++i) {
                 mem[currentPC + i] = [0,0,0,0,0,0,0,0];
                 activeMemory[currentPC + i] = true;
             }
+            currentPC += parseInt(split[1]);
             ++line_num;
             continue;
         }
@@ -654,8 +794,22 @@ function assemble() {
 function loadCode() {
     error_output.empty();
     controls.hidden = true;
+    for (let i = 0; i < 31; ++i) {
+        registers[i] = new Int64();
+    }
+
+    for (let i = 0; i < 1048576; ++i) {
+        mem[i] = [0,0,0,0,0,0,0,0];
+        activeMemory[i] = false;
+    }
     try {
+        pc = 16;
+        n = 0;
+        z = 0;
+        c = 0;
+        v = 0;
         assemble();
+        outputRegisters();
         outputMemory();
     } catch (e) {
         error_output.append(`<p style="color: red">Error: syntax error on line ${e.message}</p>`)
@@ -666,9 +820,47 @@ function loadCode() {
 // | SECTION 4: LEGv8 RUNNING SUPPORTING | //
 // +-------------------------------------+ //
 
+function decodeCond(condCode) {
+    let val = parseInt(condCode, 2);
+    switch (val) {
+        case 0:
+            return "EQ";
+        case 1:
+            return "NE";
+        case 2:
+            return "HS";
+        case 3:
+            return "LO";
+        case 4:
+            return "MI";
+        case 5:
+            return "PL";
+        case 6:
+            return "VS";
+        case 7:
+            return "VC";
+        case 8:
+            return "HI";
+        case 9:
+            return "LS";
+        case 10:
+            return "GE";
+        case 11:
+            return "LT";
+        case 12:
+            return "GT";
+        case 13:
+            return "LE";
+        case 14:
+            return "AL";
+        case 15:
+            return "NV";
+    }
+}
+
 function decodeSimm(simm) {
     let regularPart = simm.substr(1);
-    let result = parseInt(regularPart, 2) - Math.pow(2, regularPart.length);
+    let result = parseInt(regularPart, 2) - Math.pow(2, regularPart.length) * (simm.charAt(0) === '1' ? 1 : 0);
     return result;
 }
 
@@ -694,7 +886,7 @@ function decodeOperation(instr) {
                 case "I":
                     return {
                         instr: instruction,
-                        uimm12: parseInt(bin_str.substr(10, 12), 12),
+                        uimm12: parseInt(bin_str.substr(10, 12), 2),
                         Xn: parseInt(bin_str.substr(22, 5), 2),
                         Xd: parseInt(bin_str.substr(27, 5), 2)
                     };
@@ -704,11 +896,39 @@ function decodeOperation(instr) {
                         simm9: decodeSimm(bin_str.substr(11, 9)),
                         Xn: parseInt(bin_str.substr(22, 5), 2),
                         Xt: parseInt(bin_str.substr(27, 5), 2)
-                    }
+                    };
                 case "B":
-
+                    return {
+                        instr: instruction,
+                        simm26: decodeSimm(bin_str.substr(6, 26))
+                    };
+                case "CB":
+                    if (instruction === "B.cond") {
+                        return {
+                            instr: instruction,
+                            simm19: decodeSimm(bin_str.substr(8, 19)),
+                            cond: decodeCond(bin_str.substr(28, 4))
+                        }
+                    } else {
+                        console.log(bin_str.substr(8, 19));
+                        return {
+                            instr: instruction,
+                            simm19: decodeSimm(bin_str.substr(8, 19)),
+                            Xt: parseInt(bin_str.substr(27, 5), 2)
+                        };
+                    }
+                case "IM":
+                    return {
+                        instr: instruction,
+                        lsln: parseInt(bin_str.substr(9, 2), 2) * 16,
+                        uimm16: parseInt(bin_str.substr(11, 16), 2),
+                        Xd: parseInt(bin_str.substr(27, 5), 2)
+                    };
+                case "HLT":
+                    return {
+                        instr: "HLT"
+                    }
             }
-            return {};
         }
     }
     return {error: "ERROR"};
@@ -718,7 +938,11 @@ function decodeOperation(instr) {
 // | SECTION 5: LEGv8 RUNNING | //
 // +--------------------------+ //
 
+let running = true;
+
 function step() {
+
+    console.log("step");
 
     // read 32-bit instruction from PC through PC + 3
 
@@ -728,7 +952,442 @@ function step() {
     instr.setBits(16, mem[pc + 1]);
     instr.setBits(24, mem[pc]);
 
+    let op = decodeOperation(instr);
 
+    switch (op.instr) {
+        case "ADD":
+        case "ADDS":
+        {
+            let sum = addWithCarry(registers[op.Xn], registers[op.Xm], 0);
+            if (op.instr === "ADDS") {
+                n = sum.n;
+                z = sum.z;
+                c = sum.c;
+                v = sum.v;
+            }
+            registers[op.Xd] = sum.sum;
+            pc += 4;
+        }
+        break;
+        case "ADDI":
+        case "ADDIS":
+        {
+            let uimm = binaryPad(op.uimm12, 12);
+            let immInt64 = new Int64();
+            immInt64.setBits(52, uimm);
+            let sum = addWithCarry(registers[op.Xn], immInt64, 0);
+            if (op.instr === "ADDIS") {
+                n = sum.n;
+                z = sum.z;
+                c = sum.c;
+                v = sum.v;
+            }
+            registers[op.Xd] = sum.sum;
+            pc += 4;
+        }
+        break;
+        case "SUB":
+        case "SUBS":
+        {
+            let diff = addWithCarry(registers[op.Xn], logNot(registers[op.Xm]), 1);
+            if (op.instr === "SUBS") {
+                n = diff.n;
+                z = diff.z;
+                c = diff.c;
+                v = diff.v;
+            }
+            registers[op.Xd] = diff.sum;
+            pc += 4;
+        }
+        break;
+        case "SUBI":
+        case "SUBIS":
+        {
+            let uimm = binaryPad(op.uimm12, 12);
+            let immInt64 = new Int64();
+            immInt64.setBits(52, uimm);
+            let sum = addWithCarry(registers[op.Xn], logNot(immInt64), 1);
+            if (op.instr === "SUBIS") {
+                n = sum.n;
+                z = sum.z;
+                c = sum.c;
+                v = sum.v;
+            }
+            registers[op.Xd] = sum.sum;
+            pc += 4;
+        }
+        break;
+
+        case "AND":
+        {
+            registers[op.Xd] = logAnd(registers[op.Xn], registers[op.Xm]);
+            pc += 4;
+        }
+        break;
+        case "ANDI":
+        {
+            let uimm = binaryPad(op.uimm12, 12);
+            let immInt64 = new Int64();
+            immInt64.setBits(52, uimm);
+            registers[op.Xd] = logAnd(registers[op.Xn], immInt64);
+            pc += 4;
+        }
+        break;
+        case "ORR":
+        {
+            registers[op.Xd] = logOr(registers[op.Xn], registers[op.Xm]);
+            pc += 4;
+        }
+        break;
+        case "ORRI":
+        {
+            let uimm = binaryPad(op.uimm12, 12);
+            let immInt64 = new Int64();
+            immInt64.setBits(52, uimm);
+            registers[op.Xd] = logOr(registers[op.Xn], immInt64);
+            pc += 4;
+        }
+        break;
+        case "EOR":
+        {
+            registers[op.Xd] = logXor(registers[op.Xn], registers[op.Xm]);
+            pc += 4;
+        }
+        break;
+        case "EORI":
+        {
+            let uimm = binaryPad(op.uimm12, 12);
+            let immInt64 = new Int64();
+            immInt64.setBits(52, uimm);
+            registers[op.Xd] = logXor(registers[op.Xn], immInt64);
+            pc += 4;
+        }
+        break;
+        case "LSL":
+        {
+            let shamt = op.shamt;
+            registers[op.Xd] = lsl(registers[op.Xn], shamt);
+            pc += 4;
+        }
+        break;
+        case "LSR":
+        {
+            let shamt = op.shamt;
+            registers[op.Xd] = lsr(registers[op.Xn], shamt);
+            pc += 4;
+        }
+        break;
+
+        case "MOVZ":
+        case "MOVK":
+        {
+            let uimm = binaryPad(op.uimm16, 16);
+            if (op.instr === "MOVZ") {
+                registers[op.Xd] = new Int64();
+            }
+            registers[op.Xd].setBits((64 - op.lsln - 16), uimm);
+            pc += 4;
+        }
+        break;
+
+        case "ADR":
+        {
+            let adr = (op.simm19 * 4) + pc;
+            registers[op.Xt].setBits(44, uimm(`#${adr}`, 20));
+            pc += 4;
+        }
+        break;
+        case "HLT":
+        {
+            running = false;
+        }
+        break;
+
+        case "LDUR":
+        {
+            // load double word
+            let loadFrom = Number(registers[op.Xn].toNumber(false)) + op.simm9;
+            let bytesToLoad = 8; // double word
+            for (let i = 0; i < bytesToLoad; ++i) {
+                let byte = mem[loadFrom + i];
+                for (let j = 0; j < 8; ++j) {
+                    registers[op.Xt].setBits(56 - (8 * i) + j, `${byte[j]}`);
+                }
+            }
+            pc += 4;
+        }
+        break;
+        case "LDURSW":
+        {
+            // load sign extended word
+            let loadFrom = Number(registers[op.Xn].toNumber(false)) + op.simm9;
+            let bytesToLoad = 4; // single word
+            for (let i = 0; i < bytesToLoad; ++i) {
+                let byte = mem[loadFrom + i];
+                for (let j = 0; j < 8; ++j) {
+                    registers[op.Xt].setBits(56 - (8 * i) + j, `${byte[j]}`);
+                }
+            }
+            let msb = registers[op.Xt].byteArr[4][0];
+            for (let i = 0; i < 3; ++i) {
+                for (let j = 0; j < 8; ++j) {
+                    registers[op.Xt].byteArr[i][j] = msb;
+                }
+            }
+            pc += 4;
+        }
+        break;
+        case "LDURH":
+        {
+            // load half word
+            let loadFrom = Number(registers[op.Xn].toNumber(false)) + op.simm9;
+            let bytesToLoad = 2; // half word
+            for (let i = 0; i < bytesToLoad; ++i) {
+                let byte = mem[loadFrom + i];
+                for (let j = 0; j < 8; ++j) {
+                    registers[op.Xt].setBits(56 - (8 * i) + j, `${byte[j]}`);
+                }
+            }
+            // zero extend
+            for (let i = 0; i < 5; ++i) {
+                for (let j = 0; j < 8; ++j) {
+                    registers[op.Xt].byteArr[i][j] = 0;
+                }
+            }
+            pc += 4;
+        }
+        break;
+        case "LDURB":
+        {
+            // load byte
+            let loadFrom = Number(registers[op.Xn].toNumber(false)) + op.simm9;
+            let bytesToLoad = 1; // half word
+            for (let i = 0; i < bytesToLoad; ++i) {
+                let byte = mem[loadFrom + i];
+                for (let j = 0; j < 8; ++j) {
+                    registers[op.Xt].setBits(56 - (8 * i) + j, `${byte[j]}`);
+                }
+            }
+            // zero extend
+            for (let i = 0; i < 7; ++i) {
+                for (let j = 0; j < 8; ++j) {
+                    registers[op.Xt].byteArr[i][j] = 0;
+                }
+            }
+            pc += 4;
+        }
+        break;
+
+        case "STUR":
+        {
+            // store double word
+            let storeTo = Number(registers[op.Xn].toNumber(false)) + op.simm9;
+            let bytesToStore = 8;
+            for (let i = 0; i < bytesToStore; ++i) {
+                let destByte = storeTo + i;
+                let srcByteIdx = 7 - i;
+                for (let j = 0; j < 8; ++j) {
+                    mem[destByte][j] = registers[op.Xt].byteArr[srcByteIdx][j];
+                }
+            }
+            pc += 4;
+        }
+        break;
+        case "STURW":
+        {
+            // store word
+            let storeTo = Number(registers[op.Xn].toNumber(false)) + op.simm9;
+            let bytesToStore = 4;
+            for (let i = 0; i < bytesToStore; ++i) {
+                let destByte = storeTo + i;
+                let srcByteIdx = 7 - i;
+                for (let j = 0; j < 8; ++j) {
+                    mem[destByte][j] = registers[op.Xt].byteArr[srcByteIdx][j];
+                }
+            }
+            pc += 4;
+        }
+            break;
+        case "STURH":
+        {
+            // store half word
+            let storeTo = Number(registers[op.Xn].toNumber(false)) + op.simm9;
+            let bytesToStore = 2;
+            for (let i = 0; i < bytesToStore; ++i) {
+                let destByte = storeTo + i;
+                let srcByteIdx = 7 - i;
+                for (let j = 0; j < 8; ++j) {
+                    mem[destByte][j] = registers[op.Xt].byteArr[srcByteIdx][j];
+                }
+            }
+            pc += 4;
+        }
+        break;
+        case "STURB":
+        {
+            // store byte
+            let storeTo = Number(registers[op.Xn].toNumber(false)) + op.simm9;
+            let bytesToStore = 1;
+            for (let i = 0; i < bytesToStore; ++i) {
+                let destByte = storeTo + i;
+                let srcByteIdx = 7 - i;
+                for (let j = 0; j < 8; ++j) {
+                    mem[destByte][j] = registers[op.Xt].byteArr[srcByteIdx][j];
+                }
+            }
+            pc += 4;
+        }
+        break;
+
+        case "B":
+        {
+            // unconditional branch
+            let deltaPC = op.simm26 * 4;
+            pc += deltaPC;
+        }
+        break;
+        case "BL":
+        {
+            // branch and link
+            let deltaPC = op.simm26 * 4;
+            let newPC = pc + deltaPC;
+            // set LR
+            registers[30] = pc + 4;
+            pc = newPC;
+        }
+        break;
+        case "BR":
+        {
+            // branch to register
+            let Xt = op.Xn;
+            pc = Number(registers[Xt].toNumber(false));
+        }
+        break;
+
+        case "CBZ":
+        {
+            // conditional branch zero
+            if (Number(registers[op.Xt].toNumber(false)) === 0) {
+                // branch
+                pc += op.simm19 * 4;
+            } else {
+                pc += 4;
+            }
+        }
+        break;
+        case "CBNZ":
+        {
+            // conditional branch not zero
+            if (Number(registers[op.Xt].toNumber(false)) !== 0) {
+                // branch
+                pc += op.simm19 * 4;
+            } else {
+                pc += 4;
+            }
+        }
+        break;
+
+        case "B.cond":
+        {
+            // conditional branch based on flags
+            let flag = op.cond;
+            let newPC = pc + op.simm19;
+            switch (flag) {
+                case "EQ":
+                    if (z === 1) {
+                        pc = newPC;
+                    } else {
+                        pc += 4;
+                    }
+                    break;
+                case "NE":
+                    if (z !== 1) {
+                        pc = newPC;
+                    } else {
+                        pc += 4;
+                    }
+                    break;
+                case "HS":
+                    if (c === 1) {
+                        pc = newPC;
+                    } else {
+                        pc += 4;
+                    }
+                    break;
+                case "LO":
+                    if (c === 0) {
+                        pc = newPC;
+                    } else {
+                        pc += 4;
+                    }
+                    break;
+                case "MI":
+                    if (n === 1) {
+                        pc = newPC;
+                    } else {
+                        pc += 4;
+                    }
+                    break;
+                case "PL":
+                    if (n === 0) {
+                        pc = newPC;
+                    } else {
+                        pc += 4;
+                    }
+                    break;
+                case "VS":
+                    break;
+                case "VC":
+                    break;
+                case "HI":
+                    if ((z === 0 && c === 1)) {
+                        pc = newPC;
+                    } else {
+                        pc += 4;
+                    }
+                    break;
+                case "LS":
+                    if (!(z === 0 && c === 1)) {
+                        pc = newPC;
+                    } else {
+                        pc += 4;
+                    }
+                    break;
+                case "GE":
+                    if (n === v) {
+                        pc = newPC;
+                    } else {
+                        pc += 4;
+                    }
+                    break;
+                case "LT":
+                    if (z !== v) {
+                        pc = newPC;
+                    } else {
+                        pc += 4;
+                    }
+                    break;
+                case "GT":
+                    if ((z === 0 && n === v)) {
+                        pc = newPC;
+                    } else {
+                        pc += 4;
+                    }
+                    break;
+                case "LE":
+                    if (!(z === 0 && n === v)) {
+                        pc = newPC;
+                    } else {
+                        pc += 4;
+                    }
+                    break;
+                case "AL":
+                case "NV":
+                    pc = newPC;
+                    break;
+            }
+        }
+    }
 
     outputFlags();
     outputMemory();
