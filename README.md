@@ -64,7 +64,7 @@ Pseudoinstructions supported by this simulator are:
 
 + `MOV Xd Xn = ORR Xd XZR Xn`
 + `MOV Xd #uimm12 = ORRI Xd XZR #uimm12`
-+ `CMP Xn Xm = SUBS XZR Xm Xn`
++ `CMP Xn Xm = SUBS XZR Xn Xm`
 
 Directives supported by this simulator are:
 + `% [numbytes]`
