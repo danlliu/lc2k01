@@ -123,7 +123,7 @@ function outputCurrentInstruction() {
         case "SUBS":
         case "AND":
         case "ORR":
-        case "XOR":
+        case "EOR":
             about_to_run.innerHTML = `${op.instr} ${regNumToName(op.Xd)}, ${regNumToName(op.Xn)}, ${regNumToName(op.Xm)}`
             break;
         case "ADDI":
@@ -132,7 +132,7 @@ function outputCurrentInstruction() {
         case "SUBIS":
         case "ANDI":
         case "ORRI":
-        case "XORI":
+        case "EORI":
             about_to_run.innerHTML = `${op.instr} ${regNumToName(op.Xd)}, ${regNumToName(op.Xn)}, #${op.uimm12}`;
             break;
         case "LSL":
@@ -858,7 +858,7 @@ function assemble() {
                 mc.setBits(0, instrData.opcode);
                 break;
             case 'DIR':
-                if (op === "%") {
+                if (op === "%" || op === "FILL" || op === "ALIGN") {
                     // do nothing
                     break;
                 }
@@ -874,6 +874,33 @@ function assemble() {
                 activeMemory[currentPC + i] = true;
             }
             currentPC += parseInt(split[1]);
+            ++line_num;
+            continue;
+        } else if (op === "FILL") {
+            let numValues = 0;
+            let values = [];
+            if (split.length >= 3) {
+                // we have values
+                numValues = split.length - 2;
+                for (let i = 2; i < split.length; ++i) {
+                    values.push(parseInt(split[i].substr(2, 2), 16));
+                }
+            }
+            for (let i = 0; i < parseInt(split[1]); ++i) {
+                mem[currentPC + i] = [0,0,0,0,0,0,0,0];
+                activeMemory[currentPC + i] = true;
+                if (numValues !== 0) {
+                    let value = values[i % numValues].toString(2);
+                    for (let j = 0; j < 8; ++j) {
+                        mem[currentPC + i] = (value[j] === '1' ? 1 : 0);
+                    }
+                }
+            }
+            currentPC += parseInt(split[1]);
+            ++line_num;
+            continue;
+        } else if (op === "ALIGN") {
+            currentPC = Math.ceil(currentPC / 4) * 4;
             ++line_num;
             continue;
         }
