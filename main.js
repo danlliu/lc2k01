@@ -28,7 +28,7 @@ let n = 0;
 let v = 0;
 let z = 0;
 let c = 0;
-let registers = Array(31);
+let registers = Array(32);
 let mem = Array(1048576);
 let activeMemory = Array(1048576);
 
@@ -45,11 +45,15 @@ let memory_output = $('#memory');
 
 let controls = document.querySelector('#controls');
 
+let about_to_run = document.querySelector('#current');
 let pc_output = document.querySelector('#pc');
 let n_flag = document.querySelector('#n');
 let v_flag = document.querySelector('#v');
 let z_flag = document.querySelector('#z');
 let c_flag = document.querySelector('#c');
+
+let step_button = document.querySelector('#step');
+let run_button = document.querySelector('#run');
 
 function line_template(badge, value) {
     return `<li class="list-group-item d-flex justify-content-between align-items-center"><span class="badge badge-primary">${badge}</span> ${value}</li>`;
@@ -58,7 +62,15 @@ function line_template(badge, value) {
 function outputRegisters() {
     register_output.empty();
     for (let register in registers) {
-        register_output.append(line_template(`X${register}`, registers[register].toHexString()));
+        if (register < 27) {
+            register_output.append(line_template(`X${register}`, registers[register].toHexString()));
+        } else if (parseInt(register) === 28) {
+            register_output.append(line_template(`SP`, registers[register].toHexString()));
+        } else if (parseInt(register) === 29) {
+            register_output.append(line_template(`FP`, registers[register].toHexString()));
+        } else if (parseInt(register) === 30) {
+            register_output.append(line_template(`LR`, registers[register].toHexString()));
+        }
     }
 }
 
@@ -79,6 +91,89 @@ function outputFlags() {
     v_flag.style = `color: ${v === 1 ? "black" : "lightgray"}`;
     z_flag.style = `color: ${z === 1 ? "black" : "lightgray"}`;
     c_flag.style = `color: ${c === 1 ? "black" : "lightgray"}`;
+}
+
+function outputCurrentInstruction() {
+    let instr = new Int32();
+    instr.setBits(0, mem[pc + 3]);
+    instr.setBits(8, mem[pc + 2]);
+    instr.setBits(16, mem[pc + 1]);
+    instr.setBits(24, mem[pc]);
+
+    let op = decodeOperation(instr);
+
+    let regNumToName = (x) => {
+        if (x === 28) {
+            return "SP";
+        } else if (x === 29) {
+            return "FP";
+        } else if (x === 30) {
+            return "LR";
+        } else if (x === 31) {
+            return "XZR";
+        } else {
+            return `X${x}`;
+        }
+    };
+
+    switch (op.instr) {
+        case "ADD":
+        case "ADDS":
+        case "SUB":
+        case "SUBS":
+        case "AND":
+        case "ORR":
+        case "XOR":
+            about_to_run.innerHTML = `${op.instr} ${regNumToName(op.Xd)}, ${regNumToName(op.Xn)}, ${regNumToName(op.Xm)}`
+            break;
+        case "ADDI":
+        case "ADDIS":
+        case "SUBI":
+        case "SUBIS":
+        case "ANDI":
+        case "ORRI":
+        case "XORI":
+            about_to_run.innerHTML = `${op.instr} ${regNumToName(op.Xd)}, ${regNumToName(op.Xn)}, #${op.uimm12}`;
+            break;
+        case "LSL":
+        case "LSR":
+            about_to_run.innerHTML = `${op.instr} ${regNumToName(op.Xd)}, ${regNumToName(op.Xn)}, #${op.shamt}`;
+            break;
+        case "LDUR":
+        case "LDURSW":
+        case "LDURH":
+        case "LDURB":
+        case "STUR":
+        case "STURW":
+        case "STURH":
+        case "STURB":
+            about_to_run.innerHTML = `${op.instr} ${regNumToName(op.Xt)}, [${regNumToName(op.Xn)}, #${op.simm9}]`;
+            break;
+        case "MOVZ":
+        case "MOVK":
+            about_to_run.innerHTML = `${op.instr} ${regNumToName(op.Xd)}, #${op.uimm16}, LSL ${op.lsln * 16}`;
+            break;
+        case "BR":
+            about_to_run.innerHTML = `BR ${regNumToName(op.Xt)}`;
+            break;
+        case "B":
+        case "BL":
+            about_to_run.innerHTML = `${op.instr} ${op.simm26 * 4}`;
+            break;
+        case "B.cond":
+            about_to_run.innerHTML = `B.${op.cond} ${op.simm19 * 4}`;
+            break;
+        case "CBZ":
+        case "CBNZ":
+        case "ADR":
+            about_to_run.innerHTML = `${op.instr} ${regNumToName(op.Xt)}, ${op.simm19 * 4}`;
+            break;
+        case "HLT":
+            about_to_run.innerHTML = "HLT";
+            break;
+        default:
+            about_to_run.innerHTML = "Oops, I couldn't figure that out!";
+    }
 }
 
 // +--------------------------------------------+ //
@@ -467,6 +562,7 @@ function simm(val, len) {
 let opcodes, condCodes;
 let opcodeToInstruction = {};
 $.getJSON("./opcodes.json", (json) => {
+    console.log('loaded up ready to go');
     opcodes = json;
     for (let instr in opcodes) {
         if (!opcodes.hasOwnProperty(instr)) {
@@ -487,6 +583,8 @@ $.getJSON("./condcodes.json", (json) => {condCodes = json;});
 // | SECTION 4: LEGv8 ASSEMBLY | //
 // +---------------------------+ //
 
+let running = true;
+
 let labels = {};
 
 function assemble() {
@@ -496,12 +594,15 @@ function assemble() {
     let line_num = 1;
 
     for (let line of code) { // labels loop
-
+        line.replace(/\t/, " ");
         let label = null;
         let instruction = null;
         // does it have a label
         if (line.match(/^[A-Za-z0-9]+\s/)) {
             label = line.substr(0, line.indexOf(' '));
+            if (label.endsWith(':')) {
+                label = label.substr(0, label.length - 1);
+            }
             instruction = line.substr(line.indexOf(' ') + 1).trim();
         } else {
             instruction = line.trim();
@@ -550,7 +651,7 @@ function assemble() {
 
         let instruction = null;
         // does it have a label
-        if (line.match(/^[A-Za-z0-9]+\s/)) {
+        if (line.match(/^[A-Za-z0-9]+:?\s/)) {
             instruction = line.substr(line.indexOf(' ') + 1).trim();
         } else {
             instruction = line.trim();
@@ -578,7 +679,7 @@ function assemble() {
         } else if (op === "CMP") {
             // CMP Xn Xm
             op = "SUBS";
-            split = ["SUBS", "XZR", split[2], split[1]];
+            split = ["SUBS", "XZR", split[1], split[2]];
         }
 
         let instrData = op.match(/B\..*/) ? opcodes["B.cond"] : opcodes[op];
@@ -796,6 +897,9 @@ function loadCode() {
     controls.hidden = true;
     for (let i = 0; i < 31; ++i) {
         registers[i] = new Int64();
+        if (i === 28) {
+            registers[i].setBits(44, "11111111111111111111");
+        }
     }
 
     for (let i = 0; i < 1048576; ++i) {
@@ -811,8 +915,14 @@ function loadCode() {
         assemble();
         outputRegisters();
         outputMemory();
+        outputFlags();
+        outputCurrentInstruction();
+        running = true;
+        step_button.disabled = false;
+        run_button.disabled = false;
     } catch (e) {
-        error_output.append(`<p style="color: red">Error: syntax error on line ${e.message}</p>`)
+        error_output.append(`<p style="color: red">Error: syntax error on line ${e.message}</p>`);
+        console.log(e);
     }
 }
 
@@ -938,11 +1048,7 @@ function decodeOperation(instr) {
 // | SECTION 5: LEGv8 RUNNING | //
 // +--------------------------+ //
 
-let running = true;
-
 function step() {
-
-    console.log("step");
 
     // read 32-bit instruction from PC through PC + 3
 
@@ -1185,6 +1291,7 @@ function step() {
             let bytesToStore = 8;
             for (let i = 0; i < bytesToStore; ++i) {
                 let destByte = storeTo + i;
+                activeMemory[destByte] = true;
                 let srcByteIdx = 7 - i;
                 for (let j = 0; j < 8; ++j) {
                     mem[destByte][j] = registers[op.Xt].byteArr[srcByteIdx][j];
@@ -1200,6 +1307,7 @@ function step() {
             let bytesToStore = 4;
             for (let i = 0; i < bytesToStore; ++i) {
                 let destByte = storeTo + i;
+                activeMemory[destByte] = true;
                 let srcByteIdx = 7 - i;
                 for (let j = 0; j < 8; ++j) {
                     mem[destByte][j] = registers[op.Xt].byteArr[srcByteIdx][j];
@@ -1215,6 +1323,7 @@ function step() {
             let bytesToStore = 2;
             for (let i = 0; i < bytesToStore; ++i) {
                 let destByte = storeTo + i;
+                activeMemory[destByte] = true;
                 let srcByteIdx = 7 - i;
                 for (let j = 0; j < 8; ++j) {
                     mem[destByte][j] = registers[op.Xt].byteArr[srcByteIdx][j];
@@ -1230,6 +1339,7 @@ function step() {
             let bytesToStore = 1;
             for (let i = 0; i < bytesToStore; ++i) {
                 let destByte = storeTo + i;
+                activeMemory[destByte] = true;
                 let srcByteIdx = 7 - i;
                 for (let j = 0; j < 8; ++j) {
                     mem[destByte][j] = registers[op.Xt].byteArr[srcByteIdx][j];
@@ -1291,7 +1401,7 @@ function step() {
         {
             // conditional branch based on flags
             let flag = op.cond;
-            let newPC = pc + op.simm19;
+            let newPC = pc + op.simm19 * 4;
             switch (flag) {
                 case "EQ":
                     if (z === 1) {
@@ -1361,7 +1471,7 @@ function step() {
                     }
                     break;
                 case "LT":
-                    if (z !== v) {
+                    if (n !== v) {
                         pc = newPC;
                     } else {
                         pc += 4;
@@ -1387,9 +1497,40 @@ function step() {
                     break;
             }
         }
+        break;
     }
+
+    if (!running) {
+        step_button.disabled = true;
+        run_button.disabled = true;
+    }
+
+    registers[31] = new Int64();
 
     outputFlags();
     outputMemory();
     outputRegisters();
+    outputCurrentInstruction();
+}
+
+let runningInterval = null;
+
+function run() {
+    if (runningInterval != null) {
+        // cancel it
+        clearInterval(runningInterval);
+        runningInterval = null;
+        run_button.innerHTML = "Run";
+        return;
+    }
+    runningInterval = setInterval(() => {
+        if (running) {
+            step();
+        } else {
+            run_button.innerHTML = "Run";
+            clearInterval(runningInterval);
+            runningInterval = null;
+        }
+    });
+    run_button.innerHTML = "Pause";
 }

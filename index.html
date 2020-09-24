@@ -39,15 +39,19 @@
                 <hr/>
                 <div id="controls" hidden>
                     <div class="d-flex justify-content-center">
-                        <button class="btn btn-secondary mx-3" onclick="step()">Step</button>
-                        <button class="btn btn-secondary mx-3">Run</button>
+                        <button id="step" class="btn btn-secondary mx-3" onclick="step()">Step</button>
+                        <button id="run" class="btn btn-secondary mx-3" onclick="run()">Run</button>
                     </div>
                     <hr/>
                 </div>
-
                 <div id="errors">
 
                 </div>
+                <div>
+                    <h3>About to run:</h3>
+                    <h4 id="current" style="font-family: monospace"></h4>
+                </div>
+                <hr/>
                 <div class="row">
                     <div class="col-7">
                         <h3 id="pc">PC = 0x10</h3>
