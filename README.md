@@ -74,6 +74,10 @@ Directives supported by this simulator are:
 
 ## Documentation for instructions outside LEGv8:
 
+### `HLT`
+Unconditional halt. I took this from the ARMv8 `HLT` instruction, which sends the program into debug mode, but in
+ this simulator, it is the 'end program' instruction.
+
 ### `B.AL`
 Always takes the branch. Performs the same function as `B`.
 

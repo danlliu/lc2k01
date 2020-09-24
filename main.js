@@ -659,9 +659,13 @@ function assemble() {
 
         console.log(instruction);
 
+        console.log("hi");
         // we have an instruction, decode it
         let split = instruction.split(/[ ,\[\]]+/);
+        console.log("hi");
         let op = split[0];
+
+        console.log(op);
 
         // handle pseudoinstructions
 
@@ -681,6 +685,8 @@ function assemble() {
             op = "SUBS";
             split = ["SUBS", "XZR", split[1], split[2]];
         }
+
+        console.log(op);
 
         let instrData = op.match(/B\..*/) ? opcodes["B.cond"] : opcodes[op];
 
@@ -860,6 +866,7 @@ function assemble() {
             case 'DIR':
                 if (op === "%" || op === "FILL" || op === "ALIGN") {
                     // do nothing
+                    console.log("directive");
                     break;
                 }
                 break;
@@ -877,6 +884,7 @@ function assemble() {
             ++line_num;
             continue;
         } else if (op === "FILL") {
+            console.log(split);
             let numValues = 0;
             let values = [];
             if (split.length >= 3) {
@@ -886,13 +894,16 @@ function assemble() {
                     values.push(parseInt(split[i].substr(2, 2), 16));
                 }
             }
+            console.log(values);
             for (let i = 0; i < parseInt(split[1]); ++i) {
                 mem[currentPC + i] = [0,0,0,0,0,0,0,0];
                 activeMemory[currentPC + i] = true;
                 if (numValues !== 0) {
-                    let value = values[i % numValues].toString(2);
+                    console.log(i % numValues);
+                    let value = binaryPad(values[i % numValues], 8);
+                    console.log(value);
                     for (let j = 0; j < 8; ++j) {
-                        mem[currentPC + i] = (value[j] === '1' ? 1 : 0);
+                        mem[currentPC + i][j] = (value[j] === '1' ? 1 : 0);
                     }
                 }
             }
@@ -900,7 +911,9 @@ function assemble() {
             ++line_num;
             continue;
         } else if (op === "ALIGN") {
+            console.log(currentPC);
             currentPC = Math.ceil(currentPC / 4) * 4;
+            console.log(currentPC);
             ++line_num;
             continue;
         }
@@ -1525,6 +1538,11 @@ function step() {
             }
         }
         break;
+        default:
+            error_output.append(`<p style="color: red">Error: couldn't decode the instruction starting at PC=${pc}!</p>`);
+            running = false;
+            break;
+
     }
 
     if (!running) {
